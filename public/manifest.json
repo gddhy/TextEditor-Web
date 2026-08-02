@@ -1,0 +1,125 @@
+{
+  "name": "文本编辑器",
+  "short_name": "Text Editor",
+  "description": "基于 Monaco Editor 的 Web 文本编辑器，Material Design 界面，支持多编码、Markdown 预览、PWA 文件关联。",
+  "lang": "zh-CN",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "id": "/text-editor",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "orientation": "any",
+  "background_color": "#141218",
+  "theme_color": "#6750A4",
+  "categories": ["productivity", "utilities", "developer"],
+  "iarc_rating_id": "e84b4d27-8f4b-4c83-8c8d-9b9d3b5c9d5d",
+  "icons": [
+    { "src": "./icons/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/icon-64.png", "sizes": "64x64", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-256.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "screenshots": [
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "form_factor": "wide" }
+  ],
+  "shortcuts": [
+    {
+      "name": "新建文档",
+      "short_name": "新建",
+      "description": "打开应用并新建一个空文档",
+      "url": "./?action=new",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Markdown 预览",
+      "short_name": "Markdown",
+      "description": "新建 Markdown 文档并启用预览",
+      "url": "./?action=new&ext=md",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "file_handlers": [
+    {
+      "name": "文本文件",
+      "action": "./",
+      "accept": {
+        "text/plain": [".txt", ".text", ".log", ".me", ".nfo", ".srt", ".vtt", ".ass", ".csv", ".tsv", ".ini", ".cfg", ".conf", ".properties", ".env", ".editorconfig", ".gitignore"],
+        "text/markdown": [".md", ".markdown", ".mdown", ".mkd", ".mdx"],
+        "text/html": [".html", ".htm", ".xhtml", ".vue", ".hbs", ".ejs", ".jsp", ".asp", ".aspx", ".erb", ".art"],
+        "text/css": [".css", ".scss", ".less", ".styl"],
+        "text/javascript": [".js", ".mjs", ".cjs", ".jsx"],
+        "application/json": [".json", ".jsonc", ".json5", ".map", ".webmanifest"],
+        "application/xml": [".xml", ".xsd", ".xsl", ".xslt", ".plist", ".rss", ".atom"],
+        "image/svg+xml": [".svg"],
+        "application/yaml": [".yaml", ".yml"]
+      }
+    },
+    {
+      "name": "源代码文件",
+      "action": "./",
+      "accept": {
+        "text/x-csrc": [".c", ".h", ".inl", ".tcc", ".ipp"],
+        "text/x-c++src": [".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".tpp", ".ixx"],
+        "text/x-csharp": [".cs"],
+        "text/typescript": [".ts", ".tsx", ".mts", ".cts"],
+        "text/x-go": [".go"],
+        "text/x-rust": [".rs"],
+        "text/x-python": [".py", ".pyw", ".pyi", ".pyx", ".pxd", ".py3"],
+        "text/x-ruby": [".rb", ".rake", ".gemspec", ".rbi"],
+        "text/x-php": [".php", ".php3", ".php4", ".php5", ".phtml", ".phps", ".inc"],
+        "text/x-java": [".java"],
+        "text/x-kotlin": [".kt", ".kts"],
+        "text/x-scala": [".scala", ".sc"],
+        "text/x-swift": [".swift"],
+        "text/x-objectivec": [".m", ".mm"],
+        "text/x-dart": [".dart"],
+        "text/x-lua": [".lua"],
+        "text/x-perl": [".pl", ".pm"],
+        "text/x-rscript": [".r", ".R"],
+        "text/x-sh": [".sh", ".bash", ".zsh", ".fish", ".ksh", ".csh", ".tcsh"],
+        "text/x-sql": [".sql", ".ddl", ".dml"],
+        "application/x-powershell": [".ps1", ".psm1", ".psd1"],
+        "text/x-bat": [".bat", ".cmd"],
+        "text/x-vbscript": [".vbs", ".vbe", ".vb", ".bas", ".frm", ".cls"],
+        "text/x-asm": [".asm", ".s", ".nasm", ".a51"],
+        "text/x-pascal": [".pas", ".pp", ".lpr", ".dpr"],
+        "text/x-fortran": [".f", ".f77", ".f90", ".f95", ".f03", ".for"],
+        "text/x-haskell": [".hs", ".lhs"],
+        "text/x-erlang": [".erl", ".hrl"],
+        "text/x-elixir": [".ex", ".exs"],
+        "text/x-clojure": [".clj", ".cljs", ".cljc", ".edn"],
+        "text/x-coffeescript": [".coffee", ".litcoffee"],
+        "text/x-groovy": [".groovy", ".gradle", ".gvy"],
+        "text/x-fsharp": [".fs", ".fsx", ".fsi"],
+        "application/x-nim": [".nim"],
+        "text/x-crystal": [".cr"],
+        "text/x-zig": [".zig"],
+        "text/x-solidity": [".sol"],
+        "text/x-terraform": [".tf", ".tfvars", ".hcl"],
+        "application/graphql": [".graphql", ".gql"],
+        "application/x-protobuf": [".proto"],
+        "text/x-diff": [".diff", ".patch"],
+        "text/x-razor": [".razor", ".cshtml"],
+        "text/x-twig": [".twig"],
+        "text/x-pug": [".pug", ".jade"],
+        "text/x-haml": [".haml"],
+        "text/x-mustache": [".mustache"],
+        "text/x-bicep": [".bicep"],
+        "text/x-d": [".d", ".di"],
+        "text/x-ocaml": [".ml", ".mli"],
+        "text/x-julia": [".jl"],
+        "text/x-raku": [".raku", ".rakudoc"]
+      }
+    }
+  ],
+  "edge_side_panel": { "preferred_width": 600 },
+  "handle_links": "preferred",
+  "prefer_related_applications": false
+}

@@ -1,0 +1,138 @@
+/* ============================================================
+   diff.css — 文本对比视图
+   固定全屏覆盖层；顶部工具栏 + 下方左右分栏编辑器 + 最右侧差异标记条
+   ============================================================ */
+
+.diff-view {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--md-surface, #fef7ff);
+  color: var(--md-on-surface, #1c1b1f);
+}
+
+/* hidden 属性需显式覆盖，否则 display:flex 会让对比视图默认盖在编辑器之上 */
+.diff-view[hidden] {
+  display: none;
+}
+
+/* ----- 顶部工具栏 ----- */
+.diff-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--md-outline-variant, #e7e0ec);
+  background: var(--md-surface-container, #f3edf7);
+  flex-wrap: wrap;
+}
+
+.diff-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  color: var(--md-primary, #6750a4);
+  white-space: nowrap;
+}
+
+.diff-side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--md-outline-variant, #e7e0ec);
+  border-radius: 10px;
+  background: var(--md-surface, #fff);
+}
+
+.diff-side-label {
+  font-size: 12px;
+  color: var(--md-on-surface-variant, #49454f);
+  white-space: nowrap;
+}
+
+.diff-sel {
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--md-outline-variant, #ccc);
+  background: var(--md-surface, #fff);
+  color: inherit;
+  max-width: 160px;
+}
+
+.diff-btn {
+  font-size: 12px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--md-secondary-container, #e8def8);
+  color: var(--md-on-secondary-container, #1d192b);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .15s ease;
+}
+.diff-btn:hover { filter: brightness(0.96); }
+.diff-btn:active { filter: brightness(0.9); }
+
+.diff-spacer { flex: 1 1 auto; }
+
+/* ----- 主体：编辑器 + 标记条 ----- */
+.diff-body {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.diff-editor {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+/* ----- 最右侧差异位置滚动条 ----- */
+.diff-overview {
+  flex: 0 0 14px;
+  position: relative;
+  background: var(--md-surface-container-low, #f7f2fa);
+  border-left: 1px solid var(--md-outline-variant, #e7e0ec);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.diff-mark {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  border-radius: 3px;
+  opacity: .9;
+  box-sizing: border-box;
+}
+
+/* 右侧新增 → 绿 */
+.diff-mark.add {
+  background: #2e7d32;
+}
+/* 右侧删除 → 红 */
+.diff-mark.del {
+  background: #c62828;
+}
+/* 修改 → 琥珀 */
+.diff-mark.change {
+  background: #f9a825;
+}
+
+/* 暗色主题适配 */
+@media (prefers-color-scheme: dark) {
+  .diff-view {
+    background: var(--md-surface, #141218);
+    color: var(--md-on-surface, #e6e0e9);
+  }
+  .diff-bar { background: var(--md-surface-container, #211f26); }
+  .diff-side { background: var(--md-surface, #1f1d24); }
+  .diff-sel { background: var(--md-surface, #1f1d24); }
+  .diff-overview { background: var(--md-surface-container-low, #1c1a22); }
+}
