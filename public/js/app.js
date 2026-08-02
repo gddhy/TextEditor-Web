@@ -116,6 +116,7 @@
 
     registerServiceWorker();
     setupInstallPrompt();
+    setupWindowControlsOverlay();
     startSessionAutosave();
     startWatch();
   }
@@ -1731,6 +1732,30 @@
       state.installPrompt = null;
       UI.snack('已安装为应用，之后可直接用它打开文本文件', { type: 'success', duration: 5000 });
     });
+  }
+
+  /* Window Controls Overlay：PWA 安装后系统窗口控件（最小化/最大化/关闭）会
+     叠在右上角，需要给标题栏让出 env(titlebar-area-width) 宽度的右侧空间。 */
+  function setupWindowControlsOverlay() {
+    if (!('windowControlsOverlay' in navigator)) return;
+    var root = document.documentElement;
+    var appbar = document.querySelector('.appbar');
+    function update() {
+      var wco = navigator.windowControlsOverlay;
+      if (!wco || !wco.visible) {
+        root.classList.remove('wco');
+        if (appbar) appbar.classList.remove('wco-tall');
+        return;
+      }
+      root.classList.add('wco');
+      // 部分 Chromium 版本会把标题栏高度也加大，可按需微调
+      if (appbar && wco.getTitlebarAreaRect) {
+        var h = wco.getTitlebarAreaRect().height;
+        if (h && h >= 36) appbar.classList.add('wco-tall');
+      }
+    }
+    navigator.windowControlsOverlay.addEventListener('geometrychange', update);
+    update();
   }
 
   function doInstall() {

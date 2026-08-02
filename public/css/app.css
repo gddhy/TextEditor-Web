@@ -177,11 +177,47 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   align-items: center;
   gap: 4px;
   padding: 0 8px;
+  /* PWA window-controls-overlay 模式下：让出系统窗口控件占用的右侧宽度 */
+  padding-right: calc(env(titlebar-area-width, 0px) + env(safe-area-inset-right, 0px));
   background: var(--md-surface-c);
   border-bottom: 1px solid var(--md-outline-variant);
   user-select: none;
   -webkit-app-region: drag;
 }
+/* 安装为 PWA 且启用了 window-controls-overlay 时，菜单/品牌可作为拖拽区域 */
+.appbar.wco-tall { height: 36px; }
+/* WCO 模式下，OS 控件区域底色 = manifest.theme_color（已装 PWA 缓存的固定值 #6750A4，
+   不会被亮/暗主题切换影响）。因此 appbar 也必须用同一个品牌紫，并把内部元素调成白色
+   —— 这样 PWA 模式下整条顶部统一品牌色，永远无反差。
+   普通浏览器 tab 模式不命中此规则，appbar 仍跟随 --md-surface-c 双模式切换。 */
+:root.wco .appbar {
+  background: #6750A4;
+  border-bottom-color: #6750A4;
+}
+:root.wco .appbar-divider { background: rgba(255, 255, 255, .22); }
+:root.wco .appbar-brand,
+:root.wco .brand-name { color: #FFFFFF; }
+:root.wco .brand-mark rect { fill: #FFFFFF; }
+:root.wco .brand-mark path { stroke: #FFFFFF; }
+:root.wco .icon-btn { color: rgba(255, 255, 255, .88); }
+:root.wco .icon-btn:hover::before { opacity: .12; }
+:root.wco .icon-btn:active::before { opacity: .22; }
+:root.wco .icon-btn.active,
+:root.wco .icon-btn.toggle.on { color: #6750A4; background: #FFFFFF; }
+/* WCO + 暗色:Windows 自动把系统按钮区域画成黑色,appbar 跟着变黑保持一致 */
+:root.wco[data-theme="dark"] .appbar {
+  background: #1D1B20;
+  border-bottom-color: #1D1B20;
+}
+:root.wco[data-theme="dark"] .appbar-divider { background: rgba(255, 255, 255, .14); }
+:root.wco[data-theme="dark"] .appbar-brand,
+:root.wco[data-theme="dark"] .brand-name { color: #E6E1E5; }
+:root.wco[data-theme="dark"] .brand-mark rect { fill: #E6E1E5; }
+:root.wco[data-theme="dark"] .brand-mark path { stroke: #E6E1E5; }
+:root.wco[data-theme="dark"] .icon-btn { color: rgba(230, 225, 229, .88); }
+:root.wco[data-theme="dark"] .icon-btn.active,
+:root.wco[data-theme="dark"] .icon-btn.toggle.on { color: #1D1B20; background: #E6E1E5; }
+:root.wco[data-theme="dark"] .icon-btn:focus-visible { outline-color: #E6E1E5; }
 .appbar-lead { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .appbar-brand { display: flex; align-items: center; gap: 8px; padding-left: 2px; min-width: 0; }
 .brand-mark { width: 24px; height: 24px; stroke: none; }

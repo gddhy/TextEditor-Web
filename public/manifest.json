@@ -10,7 +10,7 @@
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
   "orientation": "any",
-  "background_color": "#141218",
+  "background_color": "#1D1B20",
   "theme_color": "#6750A4",
   "categories": ["productivity", "utilities", "developer"],
   "iarc_rating_id": "e84b4d27-8f4b-4c83-8c8d-9b9d3b5c9d5d",
