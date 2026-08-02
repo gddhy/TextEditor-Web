@@ -197,7 +197,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 :root.wco .appbar-divider { background: rgba(255, 255, 255, .22); }
 :root.wco .appbar-brand,
 :root.wco .brand-name { color: #FFFFFF; }
-:root.wco .brand-mark rect { fill: #FFFFFF; }
+/* WCO 亮色(appbar=#6750A4):logo 块用更深紫,白字,与 appbar 形成层次
+   (避免"白块+白描线"导致整块变成无内容的白色圆角矩形) */
+:root.wco .brand-mark rect { fill: #381E72; }
 :root.wco .brand-mark path { stroke: #FFFFFF; }
 :root.wco .icon-btn { color: rgba(255, 255, 255, .88); }
 :root.wco .icon-btn:hover::before { opacity: .12; }
@@ -212,8 +214,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 :root.wco[data-theme="dark"] .appbar-divider { background: rgba(255, 255, 255, .14); }
 :root.wco[data-theme="dark"] .appbar-brand,
 :root.wco[data-theme="dark"] .brand-name { color: #E6E1E5; }
-:root.wco[data-theme="dark"] .brand-mark rect { fill: #E6E1E5; }
-:root.wco[data-theme="dark"] .brand-mark path { stroke: #E6E1E5; }
+/* WCO 暗色(appbar=#1D1B20):logo 块用浅紫,深紫字,层次清晰 */
+:root.wco[data-theme="dark"] .brand-mark rect { fill: #D0BCFF; }
+:root.wco[data-theme="dark"] .brand-mark path { stroke: #381E72; }
 :root.wco[data-theme="dark"] .icon-btn { color: rgba(230, 225, 229, .88); }
 :root.wco[data-theme="dark"] .icon-btn.active,
 :root.wco[data-theme="dark"] .icon-btn.toggle.on { color: #1D1B20; background: #E6E1E5; }
@@ -266,6 +269,18 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   background: var(--md-primary);
   box-shadow: 0 0 0 2px var(--md-surface-c);
 }
+/* PWA WCO 模式下 appbar 底色 = #6750A4,与 --md-primary 同色 → dirty 的图标和角点
+   都会"消失"。把 icon 改成暖琥珀色在紫/暗黑底上都明显,角点同步保持高对比。
+   亮色 appbar:#6750A4,暗色 appbar:#1D1B20 → 用 #FFB300(琥珀)两边都对比足。 */
+:root.wco #btnSave.dirty { color: #FFB300; }
+:root.wco #btnSave.dirty::after {
+  background: #FFB300;
+  box-shadow: 0 0 0 2px #6750A4;
+}
+:root.wco[data-theme="dark"] #btnSave.dirty::after {
+  box-shadow: 0 0 0 2px #1D1B20;
+}
+:root.wco #btnSave.dirty:hover::before { background: #FFB300; }
 
 /* ---------- 标签栏 ---------- */
 .tabbar {

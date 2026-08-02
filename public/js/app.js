@@ -12,6 +12,7 @@
     previewVisible: false,
     previewSyncing: false,
     pendingLaunch: [],
+    pendingShortcut: null,
     installPrompt: null,
     previewMode: null,
     lastMd: '',
@@ -65,6 +66,10 @@
     Files.setupLaunchQueue(function (items) {
       if (!state.ready) state.pendingLaunch = state.pendingLaunch.concat(items);
       else openItems(items, { source: 'launch' });
+    }, function (targetUrl) {
+      // PWA 快捷方式（?action=new[&ext=md]）：窗口已存在时 focus-existing 复用窗口，
+      // 通过 launchQueue 的 targetURL 投递，不会重新导航，必须在此处即时处理
+      handleShortcutUrl(targetUrl);
     });
 
     Loader.onProgress(setSplash);
@@ -124,7 +129,60 @@
   /* =========================================================
      首次启动 / 会话恢复
      ========================================================= */
+  // 解析 ?action=new[&ext=md] 查询，创建对应文档。返回 true 表示已处理
+  function runShortcutFromSearch(search) {
+    if (!global.URLSearchParams) return false;
+    var sp = new URLSearchParams(search);
+    if (sp.get('action') !== 'new') return false;
+    var ext = (sp.get('ext') || '').toLowerCase();
+    var doc;
+    if (ext === 'md') {
+      var n = 1;
+      var used = Ed.docs.map(function (d) { return d.name; });
+      while (used.indexOf('未命名-' + n + '.md') >= 0) n++;
+      doc = Ed.createDoc({ name: '未命名-' + n + '.md', content: '' });
+      doc.previewOn = true;
+    } else {
+      doc = newDoc();
+    }
+    Ed.activate(doc.id);
+    if (doc.previewOn) updatePreviewVisibility(doc);
+    return true;
+  }
+
+  // 处理 launchQueue 投递的快捷方式 targetURL（warm 复用窗口时调用）
+  function handleShortcutUrl(url) {
+    if (!url) return;
+    var qi = url.indexOf('?');
+    var search = qi >= 0 ? url.slice(qi) : '';
+    if (!search) return;
+    // 冷启动已被 bootstrap 通过 location.search 处理过（同一查询）则跳过，避免重复新建
+    if (state.ready && search === global.location.search) return;
+    if (!state.ready) { state.pendingShortcut = url; return; }
+    runShortcutFromSearch(search);
+  }
+
   function bootstrapInitialDoc() {
+    // 0) PWA 快捷方式 / 手动链接：?action=new[&ext=md]
+    //    - 冷启动（窗口不存在，被导航到快捷方式 URL）→ 来自 location.search
+    //    - 热启动（窗口已存在，focus-existing 复用窗口）→ 来自 launchQueue 的 targetURL，
+    //      其回调在状态就绪后调用 handleShortcutUrl 直接创建文档
+    if (global.location.search && runShortcutFromSearch(global.location.search)) {
+      // 清理 URL，避免刷新时重复新建
+      if (global.history && global.history.replaceState) {
+        global.history.replaceState(null, '', global.location.pathname);
+      }
+      return;
+    }
+    // 0b) 冷启动时 launchQueue 已把 targetURL 收进 pendingShortcut
+    if (state.pendingShortcut) {
+      var su = state.pendingShortcut;
+      state.pendingShortcut = null;
+      var qi = su.indexOf('?');
+      if (qi >= 0 && runShortcutFromSearch(su.slice(qi))) {
+        return;
+      }
+    }
     // 1) PWA 文件关联启动（focus-existing 下由 LaunchQueue 推入）
     if (state.pendingLaunch.length) {
       var items = state.pendingLaunch;
@@ -1718,6 +1776,24 @@
           }
         });
       });
+      // 新 SW 接管后会自动发 SW_UPDATED 消息（sw.js activate 阶段）——
+      // 对当前会话首次收到、且其版本号与上次不同的，做一次强制 reload。
+      // 这是兜底：万一 updatefound/snackbar 流程没走到（比如 PWA 已开很久没人关闭），
+      // 仍能保证下一次 SW 升级后所有 client 自动加载新 CSS/JS。
+      var SW_RELOADED_FLAG = 'webeditor_sw_reloaded_v';
+      if (navigator.serviceWorker.addEventListener) {
+        navigator.serviceWorker.addEventListener('message', function (e) {
+          var d = e && e.data;
+          if (!d || d.type !== 'SW_UPDATED') return;
+          try {
+            var v = d.version || 'unknown';
+            var flag = SW_RELOADED_FLAG + v;
+            if (global.sessionStorage && sessionStorage.getItem(flag)) return;
+            if (global.sessionStorage) sessionStorage.setItem(flag, '1');
+            location.reload();
+          } catch (err) { /* noop */ }
+        });
+      }
     }).catch(function (err) { console.warn('SW 注册失败', err); });
   }
 
@@ -1745,6 +1821,8 @@
       if (!wco || !wco.visible) {
         root.classList.remove('wco');
         if (appbar) appbar.classList.remove('wco-tall');
+        // 同步把变量归零，让依赖 --wco-right 的元素（.diff-bar::after 等）退回原位
+        root.style.setProperty('--wco-right', '0px');
         return;
       }
       root.classList.add('wco');
@@ -1753,6 +1831,15 @@
         var h = wco.getTitlebarAreaRect().height;
         if (h && h >= 36) appbar.classList.add('wco-tall');
       }
+      // 把实时测量到的右让位宽度写到 CSS 变量，供 .diff-bar::after 等子组件使用。
+      // env(titlebar-area-width) 在某些嵌套 / fixed 容器里解析不可靠，JS 测量才是权威值。
+      var w = 0;
+      try {
+        var r = (wco.getTitlebarAreaRect && wco.getTitlebarAreaRect()) || null;
+        if (r && r.width) w = Math.ceil(r.width);
+      } catch (e) { /* 忽略 */ }
+      if (!isFinite(w) || w < 0) w = 0;
+      root.style.setProperty('--wco-right', w + 'px');
     }
     navigator.windowControlsOverlay.addEventListener('geometrychange', update);
     update();

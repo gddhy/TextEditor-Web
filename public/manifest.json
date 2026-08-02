@@ -35,8 +35,8 @@
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     },
     {
-      "name": "Markdown 预览",
-      "short_name": "Markdown",
+      "name": "新建 Markdown 文档",
+      "short_name": "MD",
       "description": "新建 Markdown 文档并启用预览",
       "url": "./?action=new&ext=md",
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]

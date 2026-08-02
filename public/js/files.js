@@ -422,12 +422,20 @@
   /* ---------------------------------------------------------
      LaunchQueue（PWA 文件关联）
      --------------------------------------------------------- */
-  function setupLaunchQueue(onFiles) {
-    if (!('launchQueue' in global) || !('files' in LaunchParams.prototype)) {
+  function setupLaunchQueue(onFiles, onTargetUrl) {
+    if (!('launchQueue' in global)) {
       return false;
     }
     global.launchQueue.setConsumer(function (params) {
-      if (!params || !params.files || !params.files.length) return;
+      if (!params) return;
+      var hasFiles = ('files' in LaunchParams.prototype) && params.files && params.files.length;
+      if (!hasFiles) {
+        // 没有文件：来自 PWA 快捷方式（targetURL 携带 ?action=...），与文件关联互斥
+        if (params.targetURL && typeof onTargetUrl === 'function') {
+          onTargetUrl(params.targetURL);
+        }
+        return;
+      }
       var handles = params.files;
       Promise.all(handles.map(function (h) {
         return h.getFile().then(function (f) { return { handle: h, file: f }; })
