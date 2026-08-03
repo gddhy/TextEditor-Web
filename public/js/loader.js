@@ -10,7 +10,10 @@
     monacoMirrorName: null,
     tried: [],          // { base, name, ok, error }
     markedUrl: null,
-    purifyUrl: null
+    purifyUrl: null,
+    workerWarmed: false, // Monaco editor worker 脚本是否已预热进缓存
+    workerWarmedBy: null,// 'monaco-getWorker'（新版自解析）| 'legacy-fetch'（旧版固定路径）
+    workerUrl: null
   };
 
   var progressCb = function () {};
@@ -88,7 +91,13 @@
           clearTimeout(timer);
           // 让最快的那个完成读取以进入 HTTP 缓存，其余中止
           controllers.forEach(function (c) { if (c !== ctrl) { try { c.abort(); } catch (e) {} } });
-          return res.text().then(function () { resolve(url); });
+          // ⚠️ 关键修复：命中后立刻 resolve，绝不再 await res.text()。
+          // 某些 CDN 会先返回响应头、再让响应体流停滞，res.text() 会永久挂起，
+          // 导致整条启动 Promise 既不 resolve 也不 reject → 永远卡在"正在探测/加载编辑器"首页。
+          // loader.js 的真正加载由 loadMonacoFrom→loadScript 完成并缓存，probe 只需确认可达即可。
+          resolve(url);
+          // 后台尽力读完响应体以预热 HTTP 缓存，但不阻塞主流程、失败静默忽略
+          try { res.text().catch(function () {}); } catch (e) {}
         }).catch(function () {
           if (settled) return;
           if (--pending === 0) { settled = true; clearTimeout(timer); reject(new Error('全部探测失败')); }
@@ -258,6 +267,81 @@
     });
   }
 
+  /* ---------- Monaco worker 预热 ---------- */
+
+  /**
+   * 提前把 Monaco 的 editor worker 脚本拉进 HTTP / Service Worker 缓存。
+   *
+   * 背景：Monaco 的**差异计算跑在 web worker 里**，而这个 worker 是「首次需要时才创建」的。
+   * 用户第一次点开「文本对比」才现场去 CDN 下载几百 KB 的 worker 脚本：CDN 慢就长时间空白，
+   * CDN 抽风失败则 worker 起不来、diff 永远算不出来（表现为"概率不出对比结果"）。
+   *
+   * ⚠️ 路径不能写死：
+   *   - 旧版（≤0.52 左右）min 产物是 `<base>/base/worker/workerMain.js`；
+   *   - 新版（0.53+）min 产物已改成**扁平 + 内容哈希**，worker 变成 `<base>/workers.<hash>.js`，
+   *     旧路径直接 404 —— 写死会让预热每次都白跑一个失败请求。
+   * 新版 Monaco 会自己往 `MonacoEnvironment` 上装一个知道正确哈希名的 `getWorker`，
+   * 所以这种情况交给 Monaco 自己解析：借它创建一个一次性 worker 把脚本拉进缓存后立刻终止，
+   * 既不用猜文件名，也天然跟随版本升级。
+   */
+  function prewarmWorker() {
+    if (state.workerWarmed) return Promise.resolve(true);
+    if (location.protocol === 'file:') return Promise.resolve(false);
+
+    var env = global.MonacoEnvironment;
+
+    // 新版路径：让 Monaco 自己解析 worker 地址
+    if (env && typeof env.getWorker === 'function' && typeof global.Worker === 'function') {
+      return new Promise(function (resolve) {
+        var w = null, done = false;
+        var finish = function (ok) {
+          if (done) return;
+          done = true;
+          clearTimeout(t);
+          if (w) { try { w.terminate(); } catch (e) {} }
+          state.workerWarmed = !!ok;
+          state.workerWarmedBy = ok ? 'monaco-getWorker' : null;
+          resolve(!!ok);
+        };
+        var t = setTimeout(function () { finish(false); }, 20000);
+        try {
+          w = env.getWorker('prewarm', 'TextEditorWorker');
+          if (!w) return finish(false);
+          // worker 一有响应就说明脚本已下载并执行，缓存已就绪
+          w.addEventListener('message', function () { finish(true); });
+          w.addEventListener('error', function () { finish(false); });
+        } catch (e) { finish(false); }
+      });
+    }
+
+    // 旧版路径：按老布局直接预取
+    if (!state.monacoBase || typeof fetch !== 'function') return Promise.resolve(false);
+    var url = state.monacoBase + '/base/worker/workerMain.js';
+    var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    // 预热是尽力而为，20s 还没拉完就放弃，别一直占着连接
+    var timer = setTimeout(function () { if (ctrl) { try { ctrl.abort(); } catch (e) {} } }, 20000);
+
+    return fetch(url, {
+      mode: 'cors',
+      cache: 'force-cache',
+      credentials: 'omit',
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function (res) {
+      if (!res || !res.ok) throw new Error('HTTP ' + (res && res.status));
+      // 必须读完响应体才会真正落进 HTTP 缓存
+      return res.text();
+    }).then(function () {
+      clearTimeout(timer);
+      state.workerWarmed = true;
+      state.workerWarmedBy = 'legacy-fetch';
+      state.workerUrl = url;
+      return true;
+    }).catch(function () {
+      clearTimeout(timer);
+      return false;
+    });
+  }
+
   /* ---------- 可选增强库 ---------- */
 
   function loadMarked() {
@@ -281,6 +365,7 @@
     loadScript: loadScript,
     loadFirst: loadFirst,
     loadMonaco: loadMonaco,
+    prewarmWorker: prewarmWorker,
     loadMarked: loadMarked,
     loadDOMPurify: loadDOMPurify,
     onProgress: function (fn) { progressCb = fn; }

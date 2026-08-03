@@ -113,6 +113,47 @@
   height: 100%;
 }
 
+/* ----- 差异计算中遮罩 ----- */
+.diff-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--md-surface, #fef7ff) 78%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: auto;
+}
+.diff-loading[hidden] { display: none; }
+
+.diff-loading-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 14px;
+  font-size: 13px;
+  color: var(--md-on-surface, #1c1b1f);
+  background: var(--md-surface-container, #f3edf7);
+  border: 1px solid var(--md-outline-variant, #e7e0ec);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .12);
+}
+
+.diff-spin {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--md-outline-variant, #e7e0ec);
+  border-top-color: var(--md-primary, #6750a4);
+  animation: diff-spin .8s linear infinite;
+}
+@keyframes diff-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .diff-spin { animation-duration: 2.4s; }
+}
+
 /* ----- 最右侧差异位置滚动条 ----- */
 .diff-overview {
   flex: 0 0 14px;
@@ -145,14 +186,124 @@
   background: #f9a825;
 }
 
-/* 暗色主题适配 */
+/* ---------- PWA window-controls-overlay 模式下与主编辑器 appbar 统一 ----------
+   安装为 PWA 后，系统会把窗口控件（最小化/最大化/关闭）区域绘成 manifest.theme_color。
+   主编辑器 appbar 在 WCO 下固定使用品牌紫 #6750A4（亮色）或系统黑 #1D1B20（暗色），
+   文本对比的 diff-bar 也要保持一致，避免顶部出现两段不同颜色。 */
+
+/* 亮色 WCO：diff-bar = 品牌紫，内部元素用白/浅紫保证可读 */
+:root.wco .diff-bar {
+  background: #6750A4;
+  border-bottom-color: #6750A4;
+}
+:root.wco .diff-title {
+  color: #FFFFFF;
+}
+:root.wco .diff-side {
+  background: #F3EDF7;
+  border-color: rgba(255, 255, 255, .28);
+}
+:root.wco .diff-side-label {
+  color: #49454F;
+}
+:root.wco .diff-sel {
+  background: #FFFFFF;
+  border-color: #CAC4D0;
+  color: #1D1B20;
+}
+:root.wco .diff-btn {
+  background: rgba(255, 255, 255, .9);
+  color: #6750A4;
+}
+:root.wco .diff-btn:hover { filter: brightness(0.94); }
+:root.wco .diff-btn:active { filter: brightness(0.88); }
+
+/* 暗色 WCO：diff-bar = 系统黑，内部元素用暗色 surface/浅灰保证可读 */
+:root.wco[data-theme="dark"] .diff-bar {
+  background: #1D1B20;
+  border-bottom-color: #1D1B20;
+}
+:root.wco[data-theme="dark"] .diff-title {
+  color: #E6E1E5;
+}
+:root.wco[data-theme="dark"] .diff-side {
+  background: #211F26;
+  border-color: rgba(255, 255, 255, .14);
+}
+:root.wco[data-theme="dark"] .diff-side-label {
+  color: #CAC4D0;
+}
+:root.wco[data-theme="dark"] .diff-sel {
+  background: #141218;
+  border-color: #49454F;
+  color: #E6E1E5;
+}
+:root.wco[data-theme="dark"] .diff-btn {
+  background: #36343B;
+  color: #E6E1E5;
+}
+:root.wco[data-theme="dark"] .diff-btn:hover { filter: brightness(1.12); }
+:root.wco[data-theme="dark"] .diff-btn:active { filter: brightness(1.22); }
+
+/* WCO 下标题栏区域默认被浏览器当作拖拽区，会导致按钮/下拉框不响应点击。
+   参考主编辑器 appbar 的做法：diff-bar 整体可拖拽，交互元素显式声明不可拖拽。 */
+:root.wco .diff-bar { -webkit-app-region: drag; }
+:root.wco .diff-side,
+:root.wco .diff-btn,
+:root.wco .diff-sel { -webkit-app-region: no-drag; }
+
+/* 暗色主题适配（普通浏览器窗口）
+   在普通浏览器窗口（非 PWA WCO）下，暗色模式的 diff-bar 也要和主编辑器 appbar 一样
+   使用近黑色 #1D1B20，避免顶部出现灰/紫两段。子元素使用暗色 surface 保证可读。 */
 @media (prefers-color-scheme: dark) {
   .diff-view {
     background: var(--md-surface, #141218);
     color: var(--md-on-surface, #e6e0e9);
   }
-  .diff-bar { background: var(--md-surface-container, #211f26); }
-  .diff-side { background: var(--md-surface, #1f1d24); }
-  .diff-sel { background: var(--md-surface, #1f1d24); }
+  .diff-bar {
+    background: #1D1B20;
+    border-bottom-color: #1D1B20;
+  }
+  .diff-title { color: #E6E1E5; }
+  .diff-side {
+    background: #211F26;
+    border-color: rgba(255, 255, 255, .14);
+  }
+  .diff-side-label { color: #CAC4D0; }
+  .diff-sel {
+    background: #141218;
+    border-color: #49454F;
+    color: #E6E1E5;
+  }
+  .diff-btn {
+    background: #36343B;
+    color: #E6E1E5;
+  }
+  .diff-btn:hover { filter: brightness(1.12); }
+  .diff-btn:active { filter: brightness(1.22); }
   .diff-overview { background: var(--md-surface-container-low, #1c1a22); }
+  .diff-loading-box { background: var(--md-surface-container, #211f26); }
 }
+
+/* 显式 data-theme="dark" 时同步覆盖（普通浏览器窗口跟随设置里的主题切换） */
+:root[data-theme="dark"]:not(.wco) .diff-bar {
+  background: #1D1B20;
+  border-bottom-color: #1D1B20;
+}
+:root[data-theme="dark"]:not(.wco) .diff-title { color: #E6E1E5; }
+:root[data-theme="dark"]:not(.wco) .diff-side {
+  background: #211F26;
+  border-color: rgba(255, 255, 255, .14);
+}
+:root[data-theme="dark"]:not(.wco) .diff-side-label { color: #CAC4D0; }
+:root[data-theme="dark"]:not(.wco) .diff-sel {
+  background: #141218;
+  border-color: #49454F;
+  color: #E6E1E5;
+}
+:root[data-theme="dark"]:not(.wco) .diff-btn {
+  background: #36343B;
+  color: #E6E1E5;
+}
+:root[data-theme="dark"]:not(.wco) .diff-btn:hover { filter: brightness(1.12); }
+:root[data-theme="dark"]:not(.wco) .diff-btn:active { filter: brightness(1.22); }

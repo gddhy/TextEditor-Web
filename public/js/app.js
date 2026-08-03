@@ -18,7 +18,8 @@
     lastMd: '',
     lastHtml: '',
     previewTimer: null,
-    sessionTimer: null
+    sessionTimer: null,
+    launchBusy: false
   };
 
   /* =========================================================
@@ -62,6 +63,27 @@
     // 字体变量同步
     document.documentElement.style.setProperty('--editor-font', Cfg.get('fontFamily'));
 
+    // 看门狗：极端网络下若资源镜像持续无响应，loader 可能因请求挂起而不 resolve 也不 reject，
+    // 导致永久卡在启动页。45s 内仍未进入编辑器则给出明确的"重新加载"入口，避免无路可走。
+    var watchdog = setTimeout(function () {
+      var app = document.getElementById('app');
+      if (!app || !app.hidden) return; // 已进入编辑器则忽略
+      setSplash('加载超时：资源镜像响应缓慢', '请检查网络后点击下方重新加载');
+      var lp = document.querySelector('.linear-progress');
+      if (lp) lp.style.display = 'none';
+      var box = document.getElementById('splashSource');
+      if (box && !box.querySelector('button')) {
+        box.innerHTML = '';
+        var btn = document.createElement('button');
+        btn.className = 'btn filled';
+        btn.textContent = '重新加载';
+        btn.style.marginTop = '12px';
+        btn.onclick = function () { location.reload(); };
+        box.appendChild(btn);
+      }
+    }, 45000);
+    state.bootWatchdog = watchdog;
+
     // 尽早注册 LaunchQueue，避免错过启动参数
     Files.setupLaunchQueue(function (items) {
       if (!state.ready) state.pendingLaunch = state.pendingLaunch.concat(items);
@@ -81,6 +103,7 @@
       })
       .catch(function (err) {
         console.error(err);
+        if (state.bootWatchdog) { clearTimeout(state.bootWatchdog); state.bootWatchdog = null; }
         setSplash('加载失败：' + err.message, '请检查网络后刷新页面重试');
         $('.linear-progress').style.display = 'none';
         var box = $('#splashSource');
@@ -101,6 +124,7 @@
   function startApp() {
     Ed.init($('#editor'));
     state.ready = true;
+    if (state.bootWatchdog) { clearTimeout(state.bootWatchdog); state.bootWatchdog = null; }
 
     $('#app').hidden = false;
     document.body.classList.remove('booting');
@@ -124,6 +148,10 @@
     setupWindowControlsOverlay();
     startSessionAutosave();
     startWatch();
+
+    // 空闲时预热文本对比：diff 计算依赖 Monaco 的 web worker，worker 首次使用才创建并
+    // 现场从 CDN 下载脚本 —— 这正是"第一次进对比要等很久 / 概率没结果"的根因
+    schedulePrewarmDiff();
   }
 
   /* =========================================================
@@ -489,6 +517,7 @@
     opts = opts || {};
     var chain = Promise.resolve();
     var opened = [];
+    if (opts.source === 'launch') state.launchBusy = true;
 
     items.forEach(function (item) {
       chain = chain.then(function () {
@@ -497,6 +526,7 @@
     });
 
     return chain.then(function () {
+      if (opts.source === 'launch') state.launchBusy = false;
       if (opened.length) {
         Ed.activate(opened[opened.length - 1].id);
         if (opened.length > 1) UI.snack('已打开 ' + opened.length + ' 个文件', { type: 'success' });
@@ -538,7 +568,10 @@
           enc = bom ? bom.encoding : Cfg.get('defaultEncoding');
         }
 
-        if (det && det.binary) {
+        // 始终判断是否为二进制（与是否开启「自动编码检测」无关）：
+        // 选了文件后先在网页内判断能否当作文本加载，不能则征询用户是否仍以文本打开。
+        var binary = (det && det.binary) || Encoding.isBinary(bytes);
+        if (binary) {
           return UI.confirm({
             title: '可能是二进制文件',
             message: '「' + file.name + '」看起来不是纯文本文件，强行以文本方式打开可能显示乱码，且保存后会损坏文件。仍要打开吗？',
@@ -548,17 +581,17 @@
             ]
           }).then(function (v) {
             if (v !== 'ok') return null;
-            return finish(bytes, enc, det);
+            return finish(bytes, enc, det, binary);
           });
         }
-        return finish(bytes, enc, det);
+        return finish(bytes, enc, det, binary);
       }).catch(function (err) {
         UI.snack('读取「' + file.name + '」失败：' + err.message, { type: 'error' });
         return null;
       });
     }
 
-    function finish(bytes, enc, det) {
+    function finish(bytes, enc, det, isBinary) {
       var text = Encoding.decode(bytes, enc);
       var hasBOM = det ? det.hasBOM : !!Encoding.detectBOM(bytes);
 
@@ -571,7 +604,7 @@
         bom: hasBOM,
         eol: Encoding.detectEol(text) || Cfg.get('defaultEol'),
         size: file.size,
-        binary: det ? det.binary : false,
+        binary: !!isBinary,
         detectInfo: det
       });
       Ed.markSaved(doc);
@@ -1209,10 +1242,11 @@
   function showDiskDiff(doc, file) {
     return Files.readBytes(file).then(function (bytes) {
       var diskText = Encoding.decode(bytes, doc.encoding);
-      openDiff();
-      setDiffSide('left', diskText, doc.langId);
-      setDiffSide('right', doc.model.getValue(), doc.langId);
-      syncDiffModel();
+      openDiff(true);   // 跳过默认填充，下面自己填，少算一次 diff
+      batchDiffUpdate(function () {
+        setDiffSide('left', diskText, doc.langId);
+        setDiffSide('right', doc.model.getValue(), doc.langId);
+      });
       $('#diffLeftSel').value = '';
       $('#diffRightSel').value = doc.id;
       UI.snack('左：磁盘上的版本　右：编辑器中的版本（关闭后可用 Ctrl+S 覆盖磁盘）', { duration: 7000 });
@@ -1265,64 +1299,198 @@
     model.setValue(text || '');
   }
 
-  function syncDiffModel() {
-    if (diffEditor) diffEditor.setModel({ original: diffModels.left, modified: diffModels.right });
-    updateDiffOverview();
+  function createDiffEditorIfNeeded() {
+    if (diffEditor || !global.monaco) return diffEditor;
+    diffEditor = global.monaco.editor.createDiffEditor($('#diffEditor'), {
+      automaticLayout: true,
+      readOnly: true,
+      renderSideBySide: true,
+      fontSize: Cfg.get('fontSize'),
+      fontFamily: Cfg.get('fontFamily'),
+      theme: monacoThemeName(),
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      renderOverviewRuler: true,
+      ignoreTrimWhitespace: false,
+      diffWordWrap: Cfg.get('wordWrap') ? 'on' : 'off',
+      originalEditable: false,
+      // Monaco 默认 maxComputationTime=5000：超时会**静默放弃**并当成"无差异"渲染，
+      // 正是"打开后什么结果都不出"的元凶之一。置 0 = 不设上限，配合下方遮罩给用户反馈。
+      maxComputationTime: 0,
+      // 默认 50(MB) 以上直接不算。置 0 = 不限制，由上面的计算反馈兜底。
+      maxFileSize: 0,
+      scrollbar: { verticalScrollbarSize: 12, horizontalScrollbarSize: 12, useShadows: false }
+    });
+    diffEditor.onDidUpdateDiff(function () {
+      endDiffCompute();
+      scheduleOverview();
+    });
+    // 滚动只影响视口、不影响差异分布，用 rAF 节流即可，避免每帧重建整条标记条
+    diffEditor.getModifiedEditor().onDidScrollChange(scheduleOverview);
+    return diffEditor;
   }
 
-  function openDiff() {
+  /* ---- 差异计算中的反馈与超时兜底 ---- */
+  var diffComputeTimer = null;
+
+  function beginDiffCompute() {
+    if (!diffViewOpen) return;           // 预热阶段静默进行，不打扰用户
+    var el = $('#diffLoading');
+    if (el) {
+      el.innerHTML = '<div class="diff-loading-box"><span class="diff-spin"></span><span>正在计算差异…</span></div>';
+      el.hidden = false;
+    }
+    if (diffComputeTimer) clearTimeout(diffComputeTimer);
+    diffComputeTimer = setTimeout(onDiffComputeTimeout, 12000);
+  }
+
+  function endDiffCompute() {
+    if (diffComputeTimer) { clearTimeout(diffComputeTimer); diffComputeTimer = null; }
+    var el = $('#diffLoading');
+    if (el) { el.hidden = true; el.innerHTML = ''; }
+  }
+
+  // 12s 还没算出来，基本是 worker 脚本没下下来（CDN 抽风），给一个能自救的重试入口
+  function onDiffComputeTimeout() {
+    diffComputeTimer = null;
+    var el = $('#diffLoading');
+    if (!el || el.hidden) return;
+    el.innerHTML = '<div class="diff-loading-box">' +
+      '<span>差异计算较慢：对比 worker 可能仍在下载</span>' +
+      '<button class="diff-btn" id="diffRetryBtn">重试</button>' +
+      '<button class="diff-btn" id="diffDismissBtn">继续等待</button>' +
+      '</div>';
+    var r = $('#diffRetryBtn'); if (r) r.onclick = retryDiffCompute;
+    var d = $('#diffDismissBtn'); if (d) d.onclick = function () { el.hidden = true; el.innerHTML = ''; };
+  }
+
+  function retryDiffCompute() {
+    if (!diffEditor) return;
+    beginDiffCompute();
+    diffEditor.setModel(null);
+    // 重试前再预热一次 worker 脚本：多数情况是首个 CDN 请求卡住，重新拉一遍就好了
+    var warm = (global.Loader && Loader.prewarmWorker) ? Loader.prewarmWorker() : Promise.resolve(false);
+    warm.then(function () {
+      if (diffEditor) diffEditor.setModel({ original: diffModels.left, modified: diffModels.right });
+    }, function () {
+      if (diffEditor) diffEditor.setModel({ original: diffModels.left, modified: diffModels.right });
+    });
+  }
+
+  function syncDiffModel() {
+    if (!diffEditor) { updateDiffOverview(); return; }
+    beginDiffCompute();
+    diffEditor.setModel({ original: diffModels.left, modified: diffModels.right });
+    scheduleOverview();
+  }
+
+  /**
+   * 批量改两侧内容。
+   * 关键优化：模型一旦挂在 diff 编辑器上，每次 setValue 都会**立刻触发一次全量 diff 计算**。
+   * 原来 openDiff 里「setModel → 改左 → 改右 → 再 setModel」会连算 4 次；
+   * 大文件 + 冷 worker 时，前几次废计算会把真正需要的那次结果一直往后拖。
+   * 这里先摘掉模型再改内容，改完只挂一次、只算一次。
+   */
+  function batchDiffUpdate(fn) {
+    if (diffEditor) diffEditor.setModel(null);
+    try { fn(); } finally { syncDiffModel(); }
+  }
+
+  // skipDefaults=true：调用方紧接着会自己填两侧内容，跳过默认填充少算一次 diff
+  function openDiff(skipDefaults) {
     if (!global.monaco) return;
     refreshDiffSelects();
     $('#diffView').hidden = false;
     diffViewOpen = true;
 
     ensureDiffModels();
-    if (!diffEditor) {
-      diffEditor = global.monaco.editor.createDiffEditor($('#diffEditor'), {
-        automaticLayout: true,
-        readOnly: true,
-        renderSideBySide: true,
-        fontSize: Cfg.get('fontSize'),
-        fontFamily: Cfg.get('fontFamily'),
-        theme: monacoThemeName(),
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        renderOverviewRuler: true,
-        ignoreTrimWhitespace: false,
-        diffWordWrap: Cfg.get('wordWrap') ? 'on' : 'off',
-        originalEditable: false,
-        scrollbar: { verticalScrollbarSize: 12, horizontalScrollbarSize: 12, useShadows: false }
-      });
-      diffEditor.onDidUpdateDiff(updateDiffOverview);
-      diffEditor.getModifiedEditor().onDidScrollChange(updateDiffOverview);
-    }
-    syncDiffModel();
+    createDiffEditorIfNeeded();
+    clearWarmPlaceholder();
 
-    // 默认填充：左侧=当前活动文档，右侧=另一个已打开文档（如有），否则留空
-    var act = Ed.active();
-    if (act) {
-      setDiffSide('left', act.model.getValue(), act.langId);
-      var other = Ed.docs.filter(function (d) { return d.id !== act.id; })[0];
-      if (other) setDiffSide('right', other.model.getValue(), other.langId);
+    // 默认填充：左侧=当前活动文档，右侧=另一个已打开文档（如有），否则保持原样
+    if (skipDefaults !== true) {
+      batchDiffUpdate(function () {
+        var act = Ed.active();
+        if (!act) return;
+        setDiffSide('left', act.model.getValue(), act.langId);
+        var other = Ed.docs.filter(function (d) { return d.id !== act.id; })[0];
+        if (other) setDiffSide('right', other.model.getValue(), other.langId);
+      });
     }
-    syncDiffModel();
-    updateDiffOverview();
+
+    // 容器刚从 hidden 切出来时尺寸为 0，显式 layout 一次，避免首帧空白
+    var relayout = function () { if (diffEditor) { try { diffEditor.layout(); } catch (e) {} } };
+    if (global.requestAnimationFrame) global.requestAnimationFrame(relayout); else setTimeout(relayout, 0);
   }
 
   function closeDiff() {
     if (!diffViewOpen) return;
     diffViewOpen = false;
+    endDiffCompute();
     $('#diffView').hidden = true;
     if (diffEditor) diffEditor.setModel(null);
     if (Ed.editor) Ed.editor.layout();
+  }
+
+  /**
+   * 预热对比能力：Monaco 的差异计算跑在 web worker 里，而 worker 是首次用到才创建的
+   * （创建时才去 CDN 下 workerMain.js）。所以"第一次打开对比要等很久 / 概率不出结果"
+   * 本质是 worker 冷启动 + CDN 抖动，而不是 diff 算法本身慢。
+   * 启动空闲期就把 worker 脚本拉好、并跑一次微型 diff 让 worker 真正跑起来，
+   * 用户点开时就是热的。
+   */
+  var WARM_LEFT = '\u0001warm\n';
+  var WARM_RIGHT = '\u0001warmed\n';
+
+  /** 若模型里还残留预热占位文本就清掉（用户抢在 worker 回调前点开对比时会遇到） */
+  function clearWarmPlaceholder() {
+    if (!diffModels.left || !diffModels.right) return;
+    if (diffModels.left.getValue() !== WARM_LEFT) return;
+    try {
+      if (diffEditor) diffEditor.setModel(null);
+      diffModels.left.setValue('');
+      diffModels.right.setValue('');
+    } catch (e) {}
+  }
+
+  function prewarmDiff() {
+    if (!global.monaco || diffEditor || diffViewOpen) return;
+    try {
+      ensureDiffModels();
+      createDiffEditorIfNeeded();
+      if (!diffEditor) return;
+
+      var cleaned = false;
+      var cleanup = function () {
+        if (cleaned) return;
+        cleaned = true;
+        try { sub.dispose(); } catch (e) {}
+        if (diffViewOpen) return;           // 用户已经打开对比了，openDiff 会自己清理
+        clearWarmPlaceholder();
+      };
+
+      var sub = diffEditor.onDidUpdateDiff(cleanup);
+      diffModels.left.setValue(WARM_LEFT);
+      diffModels.right.setValue(WARM_RIGHT);
+      diffEditor.setModel({ original: diffModels.left, modified: diffModels.right });
+      setTimeout(cleanup, 20000);           // worker 始终不回也要把占位内容清掉
+    } catch (e) { /* 预热失败不影响主流程 */ }
+  }
+
+  function schedulePrewarmDiff() {
+    var run = function () {
+      var warm = (global.Loader && Loader.prewarmWorker) ? Loader.prewarmWorker() : Promise.resolve(false);
+      warm.then(prewarmDiff, prewarmDiff);
+    };
+    if (global.requestIdleCallback) global.requestIdleCallback(run, { timeout: 5000 });
+    else setTimeout(run, 1500);
   }
 
   function diffOpenFile(side) {
     Files.openFiles(true).then(function (items) {
       if (!items || !items.length) return;
       return readItemText(items[0]).then(function (data) {
-        setDiffSide(side, data.text, data.lang);
-        syncDiffModel();
+        batchDiffUpdate(function () { setDiffSide(side, data.text, data.lang); });
       });
     }).catch(function (err) { UI.snack('打开失败：' + err.message, { type: 'error' }); });
   }
@@ -1330,33 +1498,67 @@
   function diffPaste(side) {
     var t = global.prompt('粘贴要对比的文本（' + (side === 'left' ? '左侧' : '右侧') + '）：');
     if (t === null) return;
-    setDiffSide(side, t, 'plaintext');
-    syncDiffModel();
+    batchDiffUpdate(function () { setDiffSide(side, t, 'plaintext'); });
   }
 
   function diffFromTab(side, id) {
     var doc = Ed.getDoc(id);
     if (!doc) return;
-    setDiffSide(side, doc.model.getValue(), doc.langId);
-    syncDiffModel();
+    batchDiffUpdate(function () { setDiffSide(side, doc.model.getValue(), doc.langId); });
   }
 
   function swapDiff() {
     var l = diffModels.left.getValue(), r = diffModels.right.getValue();
     var ll = diffModels.left.getLanguageId(), rl = diffModels.right.getLanguageId();
-    setDiffSide('left', r, rl);
-    setDiffSide('right', l, ll);
-    syncDiffModel();
+    batchDiffUpdate(function () {
+      setDiffSide('left', r, rl);
+      setDiffSide('right', l, ll);
+    });
+  }
+
+  /* ---- 最右侧差异标记条 ---- */
+  var overviewRaf = 0;
+  var overviewSig = null;
+  var overviewBound = false;
+
+  /** rAF 节流：滚动/连续变更时合并成一帧，避免每个事件都重建整条标记 DOM */
+  function scheduleOverview() {
+    if (overviewRaf) return;
+    var run = function () { overviewRaf = 0; updateDiffOverview(); };
+    overviewRaf = global.requestAnimationFrame ? global.requestAnimationFrame(run) : setTimeout(run, 16);
   }
 
   /** 最右侧差异位置滚动条：根据 Monaco diff 计算出的行变更，按比例绘制标记，点击可跳转 */
   function updateDiffOverview() {
     var ov = $('#diffOverview');
-    if (!ov || !diffViewOpen || !diffEditor) { if (ov) ov.innerHTML = ''; return; }
+    if (!ov) return;
+    if (!diffViewOpen || !diffEditor) { ov.innerHTML = ''; overviewSig = null; return; }
     var m = diffEditor.getModel();
-    if (!m) { ov.innerHTML = ''; return; }
+    if (!m) { ov.innerHTML = ''; overviewSig = null; return; }
+
+    // 事件委托：只绑一次，不再给每个标记单独挂 onclick
+    if (!overviewBound) {
+      overviewBound = true;
+      ov.addEventListener('click', function (e) {
+        var el = e.target && e.target.closest ? e.target.closest('.diff-mark') : null;
+        if (!el || !diffEditor) return;
+        var ln = +el.getAttribute('data-line');
+        try { diffEditor.getModifiedEditor().revealLineInCenter(ln); } catch (err) {}
+      });
+    }
+
     var total = m.modified.getLineCount() || 1;
     var changes = diffEditor.getLineChanges() || [];
+
+    // 标记只取决于「总行数 + 变更集」，与滚动位置无关。
+    // 签名没变就直接跳过 DOM 重建（滚动时能省掉绝大部分无谓重排）。
+    var sig = total + '|' + changes.length + '|' + changes.map(function (c) {
+      return c.originalStartLineNumber + ',' + c.originalEndLineNumber + ',' +
+        c.modifiedStartLineNumber + ',' + c.modifiedEndLineNumber;
+    }).join(';');
+    if (sig === overviewSig) return;
+    overviewSig = sig;
+
     var html = '';
     changes.forEach(function (ch) {
       var a = Math.min(ch.modifiedStartLineNumber, ch.modifiedEndLineNumber);
@@ -1370,12 +1572,6 @@
         '%;height:' + h.toFixed(2) + '%" data-line="' + a + '" title="跳转到第 ' + a + ' 行"></div>';
     });
     ov.innerHTML = html;
-    Array.prototype.forEach.call(ov.children, function (el) {
-      el.onclick = function () {
-        var ln = +el.getAttribute('data-line');
-        try { diffEditor.getModifiedEditor().revealLineInCenter(ln); } catch (e) {}
-      };
-    });
   }
 
   /** 复用打开逻辑：读取文件字节 → 检测编码 → 解码 → 识别语言 */
@@ -1789,6 +1985,18 @@
             var v = d.version || 'unknown';
             var flag = SW_RELOADED_FLAG + v;
             if (global.sessionStorage && sessionStorage.getItem(flag)) return;
+            // 已打开文件（含 PWA 拉起的文件）或正在打开文件时，强制刷新会把这些内容冲掉，
+            // 改为提示用户手动刷新——这正是「概率装好 PWA 后双击文件却进了空页面」的根因：
+            // 新版本上线后的首次文件拉起会触发 SW 升级，旧逻辑随即 location.reload()，
+            // 而 launchQueue 只在本次启动投递一次，重载后文件就再也打不开了。
+            var busy = state.launchBusy || state.pendingLaunch.length > 0 || (Ed.docs && Ed.docs.length > 0);
+            if (busy) {
+              UI.snack('有新版本可用，刷新以应用更新', {
+                action: '立即刷新', duration: 8000,
+                onAction: function () { location.reload(); }
+              });
+              return;
+            }
             if (global.sessionStorage) sessionStorage.setItem(flag, '1');
             location.reload();
           } catch (err) { /* noop */ }
@@ -1896,7 +2104,7 @@
       '',
       '## 功能特性',
       '',
-      '- 支持 `json` `txt` `md` `java` `js` `html` `css` `bat` `vbs` `xml` 等数十种文本格式，自动语法高亮',
+      '- 支持 `json` `txt` `md` `java` `js` `html` `css` `vbs` `xml` 等数十种文本格式，自动语法高亮',
       '- **按指定编码打开 / 保存**：UTF-8、GBK、GB18030、Big5、Shift_JIS、UTF-16 等 20 余种编码',
       '- **覆写保存到原文件**：基于 File System Access API，`Ctrl + S` 直接写回磁盘',
       '- **另存为 / 直接下载**：不支持文件系统 API 的浏览器自动回退到下载',

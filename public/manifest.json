@@ -86,7 +86,6 @@
         "text/x-sh": [".sh", ".bash", ".zsh", ".fish", ".ksh", ".csh", ".tcsh"],
         "text/x-sql": [".sql", ".ddl", ".dml"],
         "application/x-powershell": [".ps1", ".psm1", ".psd1"],
-        "text/x-bat": [".bat", ".cmd"],
         "text/x-vbscript": [".vbs", ".vbe", ".vb", ".bas", ".frm", ".cls"],
         "text/x-asm": [".asm", ".s", ".nasm", ".a51"],
         "text/x-pascal": [".pas", ".pp", ".lpr", ".dpr"],

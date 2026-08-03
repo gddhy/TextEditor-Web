@@ -291,8 +291,10 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   border-bottom: 1px solid var(--md-outline-variant);
   user-select: none;
 }
-.tabs { display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; flex: 1; scrollbar-width: none; }
-.tabs::-webkit-scrollbar { height: 0; }
+.tabs { display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; flex: 1; scrollbar-width: thin; scrollbar-color: var(--md-outline) transparent; }
+.tabs::-webkit-scrollbar { height: 8px; }
+.tabs::-webkit-scrollbar-thumb { background: var(--md-outline); border-radius: 4px; }
+.tabs::-webkit-scrollbar-track { background: transparent; }
 .tab-add { align-self: center; margin: 0 4px; }
 
 .tab {
@@ -300,6 +302,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   display: flex; align-items: center; gap: 7px;
   padding: 0 8px 0 12px;
   max-width: 220px; min-width: 110px;
+  flex: 0 0 auto;
   border: 0; border-right: 1px solid var(--md-outline-variant);
   background: transparent;
   color: var(--md-on-surface-variant);

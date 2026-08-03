@@ -6,7 +6,7 @@
    ============================================================ */
 'use strict';
 
-const VERSION = 'text-editor-v16';
+const VERSION = 'text-editor-v23';
 const LOCAL_CACHE = VERSION + '-local';
 const CDN_CACHE = VERSION + '-cdn';
 

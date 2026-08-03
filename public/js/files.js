@@ -13,32 +13,16 @@
 
   /* ---------------------------------------------------------
      文件类型过滤器
+
+     默认「所有文件」：不再限制为几类文本扩展名，也不要求用户在
+     系统选择器里手动切到「全部文件」。任意文件都能选进来，
+     真正的「是不是文本」交给打开后的二进制判定（见 app.js openOne）。
      --------------------------------------------------------- */
   function pickerTypes() {
     return [
       {
-        description: '常用文本文档',
-        accept: {
-          'text/plain': ['.txt', '.text', '.log', '.md', '.markdown', '.ini', '.cfg', '.conf',
-                         '.properties', '.csv', '.tsv', '.env', '.gitignore', '.editorconfig']
-        }
-      },
-      {
-        description: '代码与脚本',
-        accept: {
-          'text/plain': ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.java', '.py', '.rb',
-                         '.php', '.go', '.rs', '.c', '.h', '.cpp', '.hpp', '.cs', '.swift',
-                         '.kt', '.lua', '.pl', '.r', '.sql', '.sh', '.bash', '.bat', '.cmd',
-                         '.ps1', '.vbs', '.vbe', '.vb', '.asm']
-        }
-      },
-      {
-        description: '标记与数据',
-        accept: {
-          'text/plain': ['.html', '.htm', '.xhtml', '.css', '.scss', '.less', '.xml', '.xsl',
-                         '.svg', '.json', '.jsonc', '.json5', '.yaml', '.yml', '.toml', '.plist',
-                         '.webmanifest']
-        }
+        description: '所有文件',
+        accept: { '*/*': [] }
       }
     ];
   }
@@ -428,7 +412,10 @@
     }
     global.launchQueue.setConsumer(function (params) {
       if (!params) return;
-      var hasFiles = ('files' in LaunchParams.prototype) && params.files && params.files.length;
+      // 直接判断本次启动是否携带了文件；不要依赖 `files in LaunchParams.prototype`
+      // 这类原型探测——个别浏览器/版本下它可能为 false，从而把所有文件启动误判为
+      // 快捷方式（targetURL），最终什么文件都不打开。
+      var hasFiles = !!(params.files && params.files.length);
       if (!hasFiles) {
         // 没有文件：来自 PWA 快捷方式（targetURL 携带 ?action=...），与文件关联互斥
         if (params.targetURL && typeof onTargetUrl === 'function') {

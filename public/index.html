@@ -136,6 +136,9 @@
     <div class="diff-body">
       <div class="diff-editor" id="diffEditor"></div>
       <div class="diff-overview" id="diffOverview" title="差异位置（点击跳转到对应行）"></div>
+      <!-- 差异计算中的遮罩：Monaco 的 diff 在 web worker 里算，首次需下载 worker 脚本，
+           这里给出明确反馈，超时后提供重试入口，避免"一直空白不知道在干嘛" -->
+      <div class="diff-loading" id="diffLoading" hidden></div>
     </div>
   </section>
 
@@ -321,7 +324,7 @@
 <!-- ============ Snackbar ============ -->
 <div class="snackbar" id="snackbar" hidden><span id="snackText"></span><button class="snack-action" id="snackAction" hidden></button></div>
 
-<input type="file" id="filePicker" multiple hidden>
+<input type="file" id="filePicker" accept="*/*" multiple hidden>
 
 <script src="./js/config.js"></script>
 <script src="./js/loader.js"></script>
