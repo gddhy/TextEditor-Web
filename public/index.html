@@ -115,23 +115,28 @@
   <!-- ============ 文本对比视图 ============ -->
   <section class="diff-view" id="diffView" hidden>
     <div class="diff-bar">
-      <span class="diff-title">文本对比</span>
-      <div class="diff-side">
-        <span class="diff-side-label">左侧（原）</span>
-        <select class="diff-sel" id="diffLeftSel"><option value="">— 空白 —</option></select>
-        <button class="diff-btn" id="diffLeftOpen">打开文件</button>
-        <button class="diff-btn" id="diffLeftPaste">粘贴</button>
+      <div class="diff-left-area">
+        <span class="diff-title">文本对比</span>
+        <div class="diff-side">
+          <span class="diff-side-label">左侧（原）</span>
+          <select class="diff-sel" id="diffLeftSel"><option value="">— 空白 —</option></select>
+          <button class="diff-btn" id="diffLeftOpen">打开文件</button>
+          <button class="diff-btn" id="diffLeftPaste">粘贴</button>
+        </div>
       </div>
       <div class="diff-spacer"></div>
-      <div class="diff-side">
-        <span class="diff-side-label">右侧（改）</span>
-        <select class="diff-sel" id="diffRightSel"><option value="">— 空白 —</option></select>
-        <button class="diff-btn" id="diffRightOpen">打开文件</button>
-        <button class="diff-btn" id="diffRightPaste">粘贴</button>
+      <div class="diff-right-area">
+        <div class="diff-side">
+          <span class="diff-side-label">右侧（改）</span>
+          <select class="diff-sel" id="diffRightSel"><option value="">— 空白 —</option></select>
+          <button class="diff-btn" id="diffRightOpen">打开文件</button>
+          <button class="diff-btn" id="diffRightPaste">粘贴</button>
+        </div>
       </div>
-      <div class="diff-spacer"></div>
-      <button class="diff-btn" id="diffSwap">交换两侧</button>
-      <button class="diff-btn" id="diffClose">关闭</button>
+      <div class="diff-actions">
+        <button class="diff-btn" id="diffSwap">交换两侧</button>
+        <button class="diff-btn" id="diffClose">关闭</button>
+      </div>
     </div>
     <div class="diff-body">
       <div class="diff-editor" id="diffEditor"></div>

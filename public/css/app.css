@@ -446,6 +446,35 @@ body.dragging .drop-hint { display: flex; }
 .markdown-body .md-empty { color: var(--md-outline); text-align: center; padding: 48px 0; font-style: italic; }
 .markdown-body .mermaid-raw { color: var(--md-on-surface-variant); }
 
+/* ---------- CSV 表格预览 ---------- */
+.markdown-body.csv-view { display: block; padding: 0; overflow: auto; }
+.csv-meta {
+  padding: 9px 16px;
+  font-size: 12px; color: var(--md-on-surface-variant);
+  background: var(--md-surface-c-low);
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.csv-body { padding: 14px 16px 40px; }
+.csv-table {
+  border-collapse: collapse;
+  width: max-content; min-width: 100%;
+  margin: 0;
+  font-family: var(--font-mono); font-size: 13px;
+  white-space: nowrap;
+}
+.csv-table th, .csv-table td {
+  border: 1px solid var(--md-outline-variant);
+  padding: 6px 12px; text-align: left; vertical-align: top;
+}
+.csv-table thead th {
+  position: sticky; top: 0;
+  background: var(--md-surface-c); font-weight: 600;
+  z-index: 2; box-shadow: 0 1px 0 var(--md-outline-variant);
+}
+.csv-table tbody tr:nth-child(2n) td { background: var(--md-surface-c-low); }
+.csv-table td:empty::after { content: '—'; color: var(--md-outline); }
+.csv-empty { color: var(--md-outline); text-align: center; padding: 48px 16px; font-style: italic; }
+
 /* HTML 预览（沙箱 iframe） */
 .preview-frame {
   flex: 1; min-height: 0; width: 100%;

@@ -17,6 +17,7 @@
     previewMode: null,
     lastMd: '',
     lastHtml: '',
+    lastCsvSrc: '',
     previewTimer: null,
     sessionTimer: null,
     launchBusy: false
@@ -899,7 +900,7 @@
   /* =========================================================
      Markdown 预览
      ========================================================= */
-  /* 当前文档可预览的类型：'markdown' | 'html' | null */
+  /* 当前文档可预览的类型：'markdown' | 'html' | 'csv' | null */
   function previewMode(doc) {
     if (!doc) return null;
     if (Langs.isMarkdown(doc.name, doc.langId)) return 'markdown';
@@ -912,6 +913,8 @@
         doc.langId === 'twig' || doc.langId === 'pug') {
       return 'html';
     }
+    // 表格类文件：.csv 用逗号，.tsv/.tab 用制表符
+    if (e === 'csv' || e === 'tsv' || e === 'tab') return 'csv';
     return null;
   }
 
@@ -945,16 +948,22 @@
     var frame = $('#previewFrame');
 
     if (want) {
-      // 打开：按类型选择预览表面（Markdown 用文章，HTML 用沙箱 iframe）
+      // 打开：按类型选择预览表面（Markdown 用文章，HTML 用沙箱 iframe，CSV 用表格文章）
       $('#panePreview').hidden = false;
       $('#splitter').hidden = false;
       applySplit(Cfg.get('previewRatio'));
+      state.lastCsvSrc = null;   // 强制重新渲染
       if (mode === 'html') {
         article.hidden = true; frame.hidden = false;
         $('#previewTitle').textContent = 'HTML 预览';
+      } else if (mode === 'csv') {
+        article.hidden = false; frame.hidden = true;
+        $('#previewTitle').textContent = 'CSV 预览';
+        article.className = 'markdown-body csv-view';
       } else {
         article.hidden = false; frame.hidden = true;
         $('#previewTitle').textContent = 'Markdown 预览';
+        article.className = 'markdown-body';
       }
       schedulePreview(true);
     } else {
@@ -966,7 +975,9 @@
       $('#panePreview').style.flex = '';
       state.lastMd = '';
       state.lastHtml = '';
+      state.lastCsvSrc = '';
       article.innerHTML = '';
+      article.className = 'markdown-body';
       article.scrollTop = 0;
       if (frame) { frame.srcdoc = 'about:blank'; frame.hidden = true; }
     }
@@ -996,6 +1007,7 @@
       state.lastMd = html;
 
       var prevTop = host.scrollTop;
+      host.className = 'markdown-body';
       host.innerHTML = html;
       host.scrollTop = prevTop;
 
@@ -1021,7 +1033,106 @@
       if (clean === state.lastHtml) return;
       state.lastHtml = clean;
       frame.srcdoc = clean;
+    } else if (mode === 'csv') {
+      if (src === state.lastCsvSrc) return;
+      state.lastCsvSrc = src;
+      renderCsvPreview(doc);
     }
+  }
+
+  /* =========================================================
+     CSV 表格预览
+     ========================================================= */
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  /** 根据扩展名推断分隔符：.csv → 逗号，.tsv/.tab → 制表符 */
+  function csvDelimiter(doc) {
+    var e = Langs.extOf(doc.name);
+    if (e === 'tsv' || e === 'tab') return '\t';
+    return ',';
+  }
+
+  /**
+   * RFC 4180 风格的 CSV 解析器：支持引号包裹、字段内逗号/换行、双引号转义（""）。
+   * 返回二维数组（已剔除整行全空的空行）。
+   */
+  function parseCsv(text, delim) {
+    var rows = [];
+    var row = [];
+    var field = '';
+    var inQuotes = false;
+    var i = 0;
+    var len = text.length;
+    var started = false;
+
+    while (i < len) {
+      var c = text[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+          inQuotes = false; i++; continue;
+        }
+        field += c; i++; continue;
+      }
+      if (c === '"') { inQuotes = true; started = true; i++; continue; }
+      if (c === delim) { row.push(field); field = ''; started = true; i++; continue; }
+      if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
+      if (c === '\r') {
+        if (text[i + 1] === '\n') i++;
+        row.push(field); rows.push(row); row = []; field = ''; i++; continue;
+      }
+      field += c; started = true; i++;
+    }
+    // 末尾残留的最后一个字段 / 行
+    if (started || field !== '' || row.length) {
+      row.push(field); rows.push(row);
+    }
+    // 去掉整行全空的记录（空行）
+    return rows.filter(function (r) {
+      return r.some(function (cell) { return cell !== ''; });
+    });
+  }
+
+  /** 把 CSV 文本渲染成带粘性表头的表格，输出到 #preview 文章容器 */
+  function renderCsvPreview(doc) {
+    var host = $('#preview');
+    host.className = 'markdown-body csv-view';
+    var delim = csvDelimiter(doc);
+    var text = doc.model.getValue();
+    var rows = parseCsv(text, delim);
+
+    var MAX = 2000;                       // 渲染上限，避免超大文件卡死 DOM
+    var truncated = rows.length > MAX;
+    if (truncated) rows = rows.slice(0, MAX);
+
+    if (!rows.length) {
+      host.innerHTML = '<div class="csv-empty">（空表格 / 无可见数据行）</div>';
+      return;
+    }
+
+    var cols = rows.reduce(function (m, r) { return Math.max(m, r.length); }, 0);
+    var delimLabel = delim === '\t' ? '制表符 (Tab)' : '逗号';
+    var meta = '共 ' + rows.length + ' 行 · ' + cols + ' 列' +
+      (truncated ? ' · 仅显示前 ' + MAX + ' 行' : '') + ' · 分隔符：' + delimLabel;
+
+    var html = '<div class="csv-meta">' + escapeHtml(meta) + '</div><div class="csv-body"><table class="csv-table"><thead><tr>';
+    var head = rows[0];
+    for (var c = 0; c < cols; c++) html += '<th>' + escapeHtml(head[c]) + '</th>';
+    html += '</tr></thead><tbody>';
+    for (var r = 1; r < rows.length; r++) {
+      html += '<tr>';
+      var row = rows[r];
+      for (var cc = 0; cc < cols; cc++) html += '<td>' + escapeHtml(row[cc]) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+
+    host.innerHTML = html;
+    host.scrollTop = 0;
   }
 
   /** HTML 预览消毒：DOMPurify 负责 body 的 XSS 清洗；内嵌 <style> 由 DOMPurify 3.x 默认剥离，

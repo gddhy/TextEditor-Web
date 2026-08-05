@@ -7,10 +7,14 @@
 - **fixed 全屏容器不能全靠 `env()`**：`.diff-view` 是 `position:fixed; inset:0;`，内部 `.diff-bar` 用 JS 测量的 `--wco-right` 做末位占位，只推最右侧按钮、不动左/右面板对齐位置。
 - **颜色匹配**：appbar 背景主动用 `#6750A4` 匹配 OS 实际绘制的 `theme_color`；暗色 WCO 下 appbar 变黑 `#1D1B20`；保存按钮 dirty 态在紫/黑底上用琥珀色 `#FFB300` 保证可识别。文本对比的 `.diff-bar` 也要跟随主 appbar：WCO 亮色 `#6750A4`、WCO/普通窗口暗色 `#1D1B20`，子元素（diff-side/diff-sel/diff-btn）改用高对比 surface 色。
 - **拖拽与点击**：WCO 标题栏区域默认会被浏览器当作拖拽区，因此 `.diff-bar` 需加 `-webkit-app-region: drag`；其内部的按钮、下拉框、面板必须加 `-webkit-app-region: no-drag`，否则点击事件会被系统拖拽逻辑吞掉。
-- **diff 右侧操作栏对齐**：普通浏览器与 PWA WCO 两套场景需求不同，不能共用同一套 flex/spacer 布局。正确做法是：
-  - HTML 用 wrapper 把左右两个操作区分开：`.diff-left-area`（含标题+左侧操作栏）、`.diff-right-area`（含右侧操作栏+交换/关闭按钮）。
-  - 普通浏览器：`.diff-bar` 保持 flex，`.diff-spacer` 撑开中间，视觉上与早期版本一致。
-  - PWA WCO：`.diff-bar` 切换为 `display: grid; grid-template-columns: 1fr 1fr var(--wco-right); gap: 0;`，第 1 列放左侧区域，第 2 列放右侧区域，第 3 列放 `::after` 系统控件占位。这样右侧区域左边缘精确在 50% 处，与下方右侧 Monaco 编辑器文本框左边缘对齐；交换/关闭按钮始终跟在右侧操作栏内部，不会被 WCO 占位推到最右。
+- **diff 右侧操作栏对齐 + 交换/关闭按钮防裁剪**：普通浏览器与 PWA WCO 需求不同，分别用 grid / flex 两套布局。
+  - HTML 结构：`.diff-bar` 内包含 `.diff-left-area`（标题+左侧操作栏）、`.diff-right-area`（仅右侧操作栏）、`.diff-actions`（交换/关闭按钮），旧 `.diff-spacer` 不再使用。
+  - 普通浏览器：`display: grid; grid-template-columns: calc(50vw - 7px) minmax(0, 1fr) auto; gap: 0; padding: 8px 0;`。第 1 列宽度≈下方左侧 Monaco 编辑器宽度，使第 2 列（右侧操作栏）左边缘与下方右侧编辑器文本区左边缘对齐；第 3 列 `auto` 固定容纳交换/关闭按钮，交换/关闭在 appbar 最右侧。
+  - PWA WCO：`display: flex; gap: 0; padding: 8px 0;`。
+    - `.diff-left-area` 固定 `calc(50vw - 7px)`，使右侧操作区起始位置与下方右侧编辑器对齐；
+    - `.diff-right-area` 正常流排列，`.diff-actions` 紧跟其后，视觉上交换/关闭属于右侧操作栏组；
+    - 末尾 `.diff-bar::after` 伪元素占位，宽度 `calc(var(--wco-right, 0px) + 160px)`，把整组推离系统最小化/最大化/关闭按钮区域；160px 安全边距覆盖部分 Chromium 在 PWA 全屏时 JS 测量值偏小的问题。
+  - 右侧操作区内部让 `.diff-sel` 可收缩（`flex:1 1 auto; min-width:60px`），窄窗口优先压缩下拉框而非挤出按钮。
 
 ## 标签栏/appbar 布局（易踩坑）
 - 主 appbar（新建/打开/保存等）与 tabbar（文件选项卡）在 `.app` 网格里是**两条独立行**（grid-template-rows: `var(--appbar-h) auto 1fr var(--status-h)`），互不绑定。
@@ -46,3 +50,10 @@
 - 差异计算在 worker 里，首次冷启动会慢；启动空闲期跑 `prewarmDiff()` 预热真实 diff 编辑器。
 - Monaco 0.53 的 diff 结果读取用 `getLineChanges()` 仍可用，只是未算完时返回 `null`（不要当空数组处理）。
 - 大文件 diff 避免重复计算：`batchDiffUpdate()` 先 `setModel(null)`，改完两侧再挂模型，只算一次。
+
+## CSV/TSV 表格预览
+- 预览类型识别在 `previewMode(doc)` 中，`.csv` / `.tsv` / `.tab` 返回 `'csv'`。
+- 预览复用 Markdown 的 `#preview` 文章容器，通过 `className='markdown-body csv-view'` 切换为表格样式；切换回 Markdown/HTML 时必须把 `className` 重置回 `'markdown-body'`。
+- 解析器走 RFC 4180 风格：支持引号包裹、字段内逗号/换行、`""` 转义；按扩展名自动选择分隔符（`.tsv/.tab` 用 Tab，其余用逗号）。
+- 渲染限制：最多渲染 2000 行，避免超大 CSV 拖垮 DOM；首行作为表头并 sticky 置顶；空单元格用 `—` 占位。
+- 滚动同步：CSV 表格仍在 `#preview` 容器内滚动，复用编辑器滚动比同步逻辑。
