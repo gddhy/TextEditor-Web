@@ -51,30 +51,39 @@
     });
   }
 
-  /** 并发探测多个 URL，返回最先成功响应的那个 */
-  function probeFastest(urls, timeout) {
+  /**
+   * 并发探测多个镜像的 loader.js 可达性，返回最先成功响应的那个「镜像对象」。
+   * ⚠️ 必须返回镜像对象而非请求 URL：部分 CDN 会 302 重定向（如 registry.npmmirror.com
+   * → cdn.npmmirror.com），若返回最终 URL，其 base 与原列表里的 mirror.base 不一致，
+   * 后续匹配会失败、probe 结果被白白浪费，于是串行降级又从原列表第一个（可能很慢）开始，
+   * 表现为"概率卡在 CDN 检测"。这里直接把命中的 mirror 对象传出去，确保探针选中的源被真正使用。
+   */
+  function probeFastest(mirrors, timeout) {
     if (typeof fetch !== 'function' || location.protocol === 'file:') {
       return Promise.reject(new Error('no-fetch'));
     }
+    var candidates = mirrors.slice(0, 6).map(function (m) {
+      return { m: m, url: m.base + '/loader.js' };
+    });
+    if (!candidates.length) return Promise.reject(new Error('无候选源'));
     var controllers = [];
     var settled = false;
 
     return new Promise(function (resolve, reject) {
-      var pending = urls.length;
-      if (!pending) return reject(new Error('无候选源'));
+      var pending = candidates.length;
 
       var timer = setTimeout(function () {
         if (!settled) { settled = true; abortAll(); reject(new Error('探测超时')); }
-      }, timeout || 8000);
+      }, timeout || 7000);
 
       function abortAll() {
         controllers.forEach(function (c) { try { c.abort(); } catch (e) {} });
       }
 
-      urls.forEach(function (url) {
+      candidates.forEach(function (cand) {
         var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
         if (ctrl) controllers.push(ctrl);
-        fetch(url, {
+        fetch(cand.url, {
           method: 'GET',
           mode: 'cors',
           cache: 'force-cache',
@@ -91,12 +100,12 @@
           clearTimeout(timer);
           // 让最快的那个完成读取以进入 HTTP 缓存，其余中止
           controllers.forEach(function (c) { if (c !== ctrl) { try { c.abort(); } catch (e) {} } });
-          // ⚠️ 关键修复：命中后立刻 resolve，绝不再 await res.text()。
+          // ⚠️ 命中后立刻 resolve，绝不再 await res.text()——
           // 某些 CDN 会先返回响应头、再让响应体流停滞，res.text() 会永久挂起，
-          // 导致整条启动 Promise 既不 resolve 也不 reject → 永远卡在"正在探测/加载编辑器"首页。
-          // loader.js 的真正加载由 loadMonacoFrom→loadScript 完成并缓存，probe 只需确认可达即可。
-          resolve(url);
-          // 后台尽力读完响应体以预热 HTTP 缓存，但不阻塞主流程、失败静默忽略
+          // 导致整条启动 Promise 既不 resolve 也不 reject → 永远卡在"正在探测/加载编辑器"。
+          // 真正加载由 loadMonacoFrom→loadScript 完成并缓存，probe 只需确认可达即可。
+          resolve(cand.m);
+          // 后台尽力读完响应体以预热 HTTP 缓存，不阻塞主流程、失败静默忽略
           try { res.text().catch(function () {}); } catch (e) {}
         }).catch(function () {
           if (settled) return;
@@ -162,7 +171,7 @@
       cleanupAMD();
       var loaderUrl = mirror.base + '/loader.js';
 
-      loadScript(loaderUrl, 15000).then(function () {
+      loadScript(loaderUrl, 12000).then(function () {
         if (typeof global.require !== 'function' || typeof global.require.config !== 'function') {
           return reject(new Error('loader.js 未提供 AMD require'));
         }
@@ -178,7 +187,7 @@
           if (finished) return;
           finished = true;
           reject(new Error('editor.main 加载超时'));
-        }, 30000);
+        }, 20000);
 
         global.require.onError = function (err) {
           if (finished) return;
@@ -206,65 +215,89 @@
   }
 
   /**
-   * 加载 Monaco：先并发探测最快源，再串行降级
+   * 加载 Monaco：优先直连已成功过的首选源 → 并发探测最快源 → 串行降级。
+   *
+   * 设计目标：避免"概率卡在 CDN 检测"。
+   *  · 若本地已记录 preferredMirror（上次成功过的源），直接优先尝试它，不做并发探测抢占；
+   *    刷新页面时该源通常仍在缓存里，几秒即可进入编辑器（这也解释了为何"刷新就能进"）。
+   *  · 冷启动才并发探测；探测命中的镜像对象被原样传回，避免 302 重定向导致 base 不匹配、
+   *    探针白跑、又从慢源串行重试。
+   *  · 串行降级只取前 6 个源，封顶总时间，避免 13 个源逐个试到天荒地老。
    */
   function loadMonaco(onProgress) {
     if (onProgress) progressCb = onProgress;
-    var mirrors = global.Config.orderedMirrors();
+    var all = global.Config.orderedMirrors();
+    var mirrors = all.slice(0, 6); // 串行降级封顶，防止遍历全部源导致长时间卡死
 
-    report('正在探测可用镜像源…');
+    function succeed(mirror) {
+      state.monacoBase = mirror.base;
+      state.monacoMirrorName = mirror.name;
+      state.tried.push({ base: mirror.base, name: mirror.name, ok: true });
+      global.Config.set('preferredMirror', mirror.base);
+      report('编辑器加载完成', mirror.name);
+      return mirror;
+    }
 
-    // 第一步：并发探测（只探 loader.js，取最快）
-    var probeUrls = mirrors.slice(0, 6).map(function (m) { return m.base + '/loader.js'; });
+    // 单个镜像尝试（带 nls 兜底）：中文语言包缺失时同源不带 nls 再试一次
+    function tryMirror(m) {
+      report('正在从镜像加载编辑器…', m.name);
+      return loadMonacoFrom(m, true).catch(function (err) {
+        if (/nls|zh-cn/i.test(err.message)) {
+          report('语言包不可用，使用英文界面重试…', m.name);
+          return loadMonacoFrom(m, false);
+        }
+        throw err;
+      });
+    }
 
-    return probeFastest(probeUrls, 7000).then(function (fastUrl) {
-      var base = fastUrl.replace(/\/loader\.js$/, '');
-      var hit = mirrors.filter(function (m) { return m.base === base; })[0];
-      if (hit) {
-        // 把探测最快的源排到最前
-        var idx = mirrors.indexOf(hit);
-        if (idx > 0) mirrors.unshift(mirrors.splice(idx, 1)[0]);
-      }
-      return mirrors;
-    }).catch(function () {
-      report('探测未命中，改为逐个尝试…');
-      return mirrors;
-    }).then(function (list) {
-      // 第二步：串行加载，失败自动切换下一个
+    function attempt(list) {
       var i = 0;
-      function attempt() {
+      function step() {
         if (i >= list.length) {
           return Promise.reject(new Error('所有镜像源均不可用，请检查网络连接'));
         }
         var m = list[i++];
-        report('正在从镜像加载编辑器…', m.name);
-
-        return loadMonacoFrom(m, true)
-          .catch(function (err) {
-            // 中文语言包可能缺失，同源不带 nls 再试一次
-            if (/nls|zh-cn/i.test(err.message)) {
-              report('语言包不可用，使用英文界面重试…', m.name);
-              return loadMonacoFrom(m, false);
-            }
-            throw err;
-          })
-          .then(function (mirror) {
-            state.monacoBase = mirror.base;
-            state.monacoMirrorName = mirror.name;
-            state.tried.push({ base: mirror.base, name: mirror.name, ok: true });
-            global.Config.set('preferredMirror', mirror.base);
-            report('编辑器加载完成', mirror.name);
-            return mirror;
-          })
-          .catch(function (err) {
-            state.tried.push({ base: m.base, name: m.name, ok: false, error: err.message });
-            console.warn('[镜像失败]', m.name, err.message);
-            report('镜像不可用，切换下一个…', m.name);
-            return attempt();
-          });
+        return tryMirror(m).then(succeed).catch(function (err) {
+          state.tried.push({ base: m.base, name: m.name, ok: false, error: err.message });
+          console.warn('[镜像失败]', m.name, err.message);
+          report('镜像不可用，切换下一个…', m.name);
+          return step();
+        });
       }
-      return attempt();
-    });
+      return step();
+    }
+
+    // 把命中的镜像排到列表最前
+    function withHitFirst(hit) {
+      var list = mirrors.slice();
+      var idx = list.indexOf(hit);
+      if (idx > 0) list.unshift(list.splice(idx, 1)[0]);
+      return list;
+    }
+
+    // —— 首选源优先直连 ——
+    var prefBase = global.Config.get('preferredMirror');
+    if (prefBase) {
+      var pref = all.filter(function (m) { return m.base === prefBase; })[0];
+      if (pref) {
+        report('正在从首选镜像加载编辑器…', pref.name);
+        return tryMirror(pref).then(succeed).catch(function () {
+          // 首选失败：退回探测 + 串行降级（首选已在优选列表，正常会被探测/降级覆盖）
+          return probeFastest(mirrors, 7000)
+            .then(function (hit) { return attempt(withHitFirst(hit)); })
+            .catch(function () { return attempt(mirrors); });
+        });
+      }
+    }
+
+    // —— 冷启动：并发探测 + 串行降级 ——
+    report('正在探测可用镜像源…');
+    return probeFastest(mirrors, 7000)
+      .then(function (hit) { return attempt(withHitFirst(hit)); })
+      .catch(function () {
+        report('探测未命中，改为逐个尝试…');
+        return attempt(mirrors);
+      });
   }
 
   /* ---------- Monaco worker 预热 ---------- */
