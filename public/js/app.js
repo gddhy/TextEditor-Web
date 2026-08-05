@@ -2019,7 +2019,8 @@
   }
 
   /* Window Controls Overlay：PWA 安装后系统窗口控件（最小化/最大化/关闭）会
-     叠在右上角，需要给标题栏让出 env(titlebar-area-width) 宽度的右侧空间。 */
+     叠在右上角。getTitlebarAreaRect() 返回的是标题栏可用区域（左侧可绘制内容），
+     其宽度不是系统控件宽度；真正的右让位宽度 = window.innerWidth - rect.right。 */
   function setupWindowControlsOverlay() {
     if (!('windowControlsOverlay' in navigator)) return;
     var root = document.documentElement;
@@ -2039,12 +2040,15 @@
         var h = wco.getTitlebarAreaRect().height;
         if (h && h >= 36) appbar.classList.add('wco-tall');
       }
-      // 把实时测量到的右让位宽度写到 CSS 变量，供 .diff-bar::after 等子组件使用。
-      // env(titlebar-area-width) 在某些嵌套 / fixed 容器里解析不可靠，JS 测量才是权威值。
+      // 把实时测量到的系统控件宽度写到 CSS 变量，供 .diff-bar::after 等子组件使用。
+      // getTitlebarAreaRect() 的 width 是左侧可用区域宽度，系统控件宽度需用
+      // window.innerWidth - rect.right 计算；这样 --wco-right 才和 CSS 中的让位公式一致。
       var w = 0;
       try {
         var r = (wco.getTitlebarAreaRect && wco.getTitlebarAreaRect()) || null;
-        if (r && r.width) w = Math.ceil(r.width);
+        if (r && typeof r.right === 'number' && typeof r.width === 'number') {
+          w = Math.max(0, Math.ceil(window.innerWidth - r.right));
+        }
       } catch (e) { /* 忽略 */ }
       if (!isFinite(w) || w < 0) w = 0;
       root.style.setProperty('--wco-right', w + 'px');

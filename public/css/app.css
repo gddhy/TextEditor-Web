@@ -166,6 +166,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .app {
   height: 100%;
   display: grid;
+  /* 显式声明单列为 minmax(0, 1fr)，避免默认 1fr = minmax(auto, 1fr)
+     在子项内容过宽时把整个 grid 列撑开，导致 appbar 溢出可视区。 */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: var(--appbar-h) auto 1fr var(--status-h);
   background: var(--md-surface);
 }
@@ -177,12 +180,19 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   align-items: center;
   gap: 4px;
   padding: 0 8px;
-  /* PWA window-controls-overlay 模式下：让出系统窗口控件占用的右侧宽度 */
-  padding-right: calc(env(titlebar-area-width, 0px) + env(safe-area-inset-right, 0px));
+  /* PWA window-controls-overlay 模式下：让出系统窗口控件占用的右侧宽度。
+     注意：env(titlebar-area-width) 是“标题栏可用区域”的宽度（左侧可绘制内容的宽度），
+     不是系统控件本身的宽度。真正的系统控件宽度 = 100vw - titlebar-area-x - titlebar-area-width。
+     当 WCO 未启用时，titlebar-area-width 回退到 100vw，整个 calc 计算为 0，不影响普通浏览器。 */
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + env(safe-area-inset-right, 0px));
   background: var(--md-surface-c);
   border-bottom: 1px solid var(--md-outline-variant);
   user-select: none;
   -webkit-app-region: drag;
+  overflow: hidden;
+  /* 关键：作为 .app grid 的子项时，防止因内部 min-content 过宽而把整个 grid 列撑开，
+     确保 appbar 严格遵循父容器宽度并触发内部收缩。 */
+  min-width: 0;
 }
 /* 安装为 PWA 且启用了 window-controls-overlay 时，菜单/品牌可作为拖拽区域 */
 .appbar.wco-tall { height: 36px; }
@@ -201,11 +211,11 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
    (避免"白块+白描线"导致整块变成无内容的白色圆角矩形) */
 :root.wco .brand-mark rect { fill: #381E72; }
 :root.wco .brand-mark path { stroke: #FFFFFF; }
-:root.wco .icon-btn { color: rgba(255, 255, 255, .88); }
-:root.wco .icon-btn:hover::before { opacity: .12; }
-:root.wco .icon-btn:active::before { opacity: .22; }
-:root.wco .icon-btn.active,
-:root.wco .icon-btn.toggle.on { color: #6750A4; background: #FFFFFF; }
+:root.wco .appbar .icon-btn { color: rgba(255, 255, 255, .88); }
+:root.wco .appbar .icon-btn:hover::before { opacity: .12; }
+:root.wco .appbar .icon-btn:active::before { opacity: .22; }
+:root.wco .appbar .icon-btn.active,
+:root.wco .appbar .icon-btn.toggle.on { color: #6750A4; background: #FFFFFF; }
 /* WCO + 暗色:Windows 自动把系统按钮区域画成黑色,appbar 跟着变黑保持一致 */
 :root.wco[data-theme="dark"] .appbar {
   background: #1D1B20;
@@ -217,15 +227,15 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 /* WCO 暗色(appbar=#1D1B20):logo 块用浅紫,深紫字,层次清晰 */
 :root.wco[data-theme="dark"] .brand-mark rect { fill: #D0BCFF; }
 :root.wco[data-theme="dark"] .brand-mark path { stroke: #381E72; }
-:root.wco[data-theme="dark"] .icon-btn { color: rgba(230, 225, 229, .88); }
-:root.wco[data-theme="dark"] .icon-btn.active,
-:root.wco[data-theme="dark"] .icon-btn.toggle.on { color: #1D1B20; background: #E6E1E5; }
-:root.wco[data-theme="dark"] .icon-btn:focus-visible { outline-color: #E6E1E5; }
-.appbar-lead { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.appbar-brand { display: flex; align-items: center; gap: 8px; padding-left: 2px; min-width: 0; }
-.brand-mark { width: 24px; height: 24px; stroke: none; }
-.brand-name { font-size: 15px; font-weight: 600; letter-spacing: .1px; white-space: nowrap; }
-.appbar-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
+:root.wco[data-theme="dark"] .appbar .icon-btn { color: rgba(230, 225, 229, .88); }
+:root.wco[data-theme="dark"] .appbar .icon-btn.active,
+:root.wco[data-theme="dark"] .appbar .icon-btn.toggle.on { color: #1D1B20; background: #E6E1E5; }
+:root.wco[data-theme="dark"] .appbar .icon-btn:focus-visible { outline-color: #E6E1E5; }
+.appbar-lead { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; min-width: 0; overflow: hidden; }
+.appbar-brand { display: flex; align-items: center; gap: 8px; padding-left: 2px; min-width: 120px; max-width: 220px; overflow: hidden; flex: 0 0 auto; }
+.brand-mark { width: 24px; height: 24px; stroke: none; flex: none; }
+.brand-name { font-size: 15px; font-weight: 600; letter-spacing: .1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 auto; min-width: 4em; }
+.appbar-actions { display: flex; align-items: center; gap: 2px; flex: 1 1 auto; min-width: 0; overflow: hidden; -webkit-app-region: no-drag; }
 .appbar-divider { width: 1px; height: 22px; background: var(--md-outline-variant); margin: 0 5px; }
 
 /* ---------- 图标按钮 ---------- */
@@ -272,15 +282,15 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 /* PWA WCO 模式下 appbar 底色 = #6750A4,与 --md-primary 同色 → dirty 的图标和角点
    都会"消失"。把 icon 改成暖琥珀色在紫/暗黑底上都明显,角点同步保持高对比。
    亮色 appbar:#6750A4,暗色 appbar:#1D1B20 → 用 #FFB300(琥珀)两边都对比足。 */
-:root.wco #btnSave.dirty { color: #FFB300; }
-:root.wco #btnSave.dirty::after {
+:root.wco .appbar #btnSave.dirty { color: #FFB300; }
+:root.wco .appbar #btnSave.dirty::after {
   background: #FFB300;
   box-shadow: 0 0 0 2px #6750A4;
 }
-:root.wco[data-theme="dark"] #btnSave.dirty::after {
+:root.wco[data-theme="dark"] .appbar #btnSave.dirty::after {
   box-shadow: 0 0 0 2px #1D1B20;
 }
-:root.wco #btnSave.dirty:hover::before { background: #FFB300; }
+:root.wco .appbar #btnSave.dirty:hover::before { background: #FFB300; }
 
 /* ---------- 标签栏 ---------- */
 .tabbar {
@@ -291,11 +301,14 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   border-bottom: 1px solid var(--md-outline-variant);
   user-select: none;
 }
-.tabs { display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; flex: 1; scrollbar-width: thin; scrollbar-color: var(--md-outline) transparent; }
+/* 关键：min-width:0 让 .tabs 在 flex 中可以被压缩，从而触发内部 overflow-x 横向滚动，
+   而不是把右侧的「新建标签页」按钮(或任何兄弟节点)顶出窗口。 */
+.tabs { display: flex; align-items: stretch; overflow-x: auto; overflow-y: hidden; flex: 1 1 0; min-width: 0; scrollbar-width: thin; scrollbar-color: var(--md-outline) transparent; }
 .tabs::-webkit-scrollbar { height: 8px; }
 .tabs::-webkit-scrollbar-thumb { background: var(--md-outline); border-radius: 4px; }
 .tabs::-webkit-scrollbar-track { background: transparent; }
-.tab-add { align-self: center; margin: 0 4px; }
+/* 固定不收缩，永远留在 tabbar 最右侧，不被大量标签挤出去 */
+.tab-add { flex: none; align-self: center; margin: 0 4px; }
 
 .tab {
   position: relative;
@@ -718,7 +731,11 @@ select.text-field { cursor: pointer; }
 
 /* ---------- 响应式 ---------- */
 @media (max-width: 720px) {
-  .brand-name { display: none; }
+  .brand-name { max-width: 120px; }
+  /* PWA WCO 小窗口下右侧系统占位让可用空间骤减，隐藏菜单里已覆盖的次要按钮，
+     避免操作栏被挤出；普通浏览器窗口保持原按钮布局。 */
+  :root.wco .appbar-actions #btnNew,
+  :root.wco .appbar-actions #btnDownload { display: none; }
   .appbar-divider { margin: 0 2px; }
   #stIndent, #stEol, #stCdn { display: none; }
   .workarea { flex-direction: column; }

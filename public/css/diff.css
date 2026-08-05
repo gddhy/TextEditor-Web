@@ -37,16 +37,16 @@
   position: relative;
 }
 
-/* 不可见的右让位占位（仅在 PWA WCO 下占用约 140px）。
+/* 不可见的右让位占位（仅在 PWA WCO 下占用系统控件宽度）。
    display:block + flex 让它成为弹性容器中的末位 item，flex-basis 用：
-     · JS 测量的真实宽度（--wco-right，由 setupWindowControlsOverlay 写入，权威值）
-     · 兜底：env(titlebar-area-width)（普通 CSS 路径，env 计算不可靠时降级）
+     · JS 测量的真实系统控件宽度（--wco-right，由 setupWindowControlsOverlay 写入，权威值）
+     · 兜底：100vw - titlebar-area-x - titlebar-area-width（env 回退，普通 CSS 路径）
      · 再兜底：0px（普通浏览器 tab 模式）
    这样不论 env() 在 .diff-view 这层 fixed 全屏容器里解析是否正常，JS 测量都会让位生效。 */
 .diff-bar::after {
   content: '';
   display: block;
-  flex: 0 0 var(--wco-right, env(titlebar-area-width, 0px));
+  flex: 0 0 var(--wco-right, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
 }
 
 .diff-title {
